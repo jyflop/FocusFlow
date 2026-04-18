@@ -62,9 +62,13 @@ export default function GanttChart({ onSelectProject }: GanttChartProps) {
   });
 
   const getProjectPosition = (project: Project) => {
-    const start = parseDate(project.startDate);
-    const end = parseDate(project.endDate);
+    let start = parseDate(project.startDate);
+    let end = parseDate(project.endDate);
     const timelineStart = startOfDay(viewDate);
+    
+    // Fallback for missing dates
+    if (!start) start = parseDate(project.createdAt);
+    if (!end) end = start ? addDays(start, 1) : null;
     
     if (!start || !end) {
       return { offset: 0, duration: 0 };
@@ -78,8 +82,7 @@ export default function GanttChart({ onSelectProject }: GanttChartProps) {
 
   const filteredProjects = projects.filter(p => {
     const matchesId = selectedProjectId === 'All' || p.id === selectedProjectId;
-    const hasDates = p.startDate && p.endDate;
-    return matchesId && hasDates;
+    return matchesId; // Remove hasDates restriction
   });
 
   return (

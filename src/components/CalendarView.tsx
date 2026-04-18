@@ -85,9 +85,15 @@ export default function CalendarView({ onSelectProject }: CalendarViewProps) {
 
   const getProjectsForDay = (day: Date) => {
     return projects.filter(p => {
-      const start = parseDate(p.startDate);
-      const end = parseDate(p.endDate);
-      if (!start || !end) return false;
+      let start = parseDate(p.startDate);
+      let end = parseDate(p.endDate);
+      
+      // Fallback for missing dates
+      if (!start) start = parseDate(p.createdAt);
+      if (!end) end = start; // If no end date, treat as a single day event
+      
+      if (!start) return false;
+      
       return isSameDay(day, start) || isSameDay(day, end) || (day >= start && day <= end);
     });
   };

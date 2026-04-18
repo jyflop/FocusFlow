@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth } from '../lib/firebase';
-import { taskService, milestoneService, timeLogService } from '../lib/firestore';
-import { Task, Milestone } from '../types';
+import { taskService, milestoneService, timeLogService, userService, projectService } from '../lib/firestore';
+import { Task, Milestone, Project, UserProfile } from '../types';
 import { 
   ArrowLeft, 
   Plus, 
@@ -16,7 +16,8 @@ import {
   Target,
   Calendar,
   Edit2,
-  UserPlus
+  UserPlus,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -53,6 +54,8 @@ export default function TaskDetail({ projectId, taskId, onBack }: TaskDetailProp
   const [elapsedTime, setElapsedTime] = useState(0);
   const [newMilestoneName, setNewMilestoneName] = useState('');
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number | null>(null);
 
@@ -76,9 +79,14 @@ export default function TaskDetail({ projectId, taskId, onBack }: TaskDetailProp
       setLoading(false);
     });
 
+    const unsubscribeProject = projectService.getProject(auth.currentUser.uid, projectId, setProject);
+    const unsubscribeProfile = userService.getUserProfile(auth.currentUser.uid, setUserProfile);
+
     return () => {
       unsubscribeTask();
       unsubscribeMilestones();
+      unsubscribeProject();
+      unsubscribeProfile();
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [projectId, taskId]);
@@ -185,6 +193,14 @@ export default function TaskDetail({ projectId, taskId, onBack }: TaskDetailProp
     }
   };
 
+  const isAdmin = userProfile?.role?.toLowerCase() === 'admin' || 
+    ['jyflopkaw@gmail.com', 'swartselsa0@gmail.com'].includes(auth.currentUser?.email || '') ||
+    auth.currentUser?.uid === '5DpJouFlgDSAQmq4dIjO173bKjD3';
+  const isProjectOwner = project?.ownerId === auth.currentUser?.uid;
+  const isTaskCreator = task?.creatorId === auth.currentUser?.uid;
+
+  const canAssign = isAdmin || isProjectOwner || isTaskCreator;
+
   if (loading || !task) return null;
 
   return (
@@ -221,18 +237,32 @@ export default function TaskDetail({ projectId, taskId, onBack }: TaskDetailProp
                   <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                   <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">Task Assignee</span>
                 </div>
-                <UserPicker 
-                  selectedUserId={task.assigneeId}
-                  onSelect={async (user) => {
-                    try {
-                      await taskService.updateTask(auth.currentUser!.uid, projectId, taskId, {
-                        assigneeId: user.uid,
-                        assigneeName: user.displayName || user.email,
-                        assigneePhoto: user.photoURL || null
-                      });
-                    } catch (error) {}
-                  }}
-                />
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <UserPicker 
+                      selectedUserId={task.assigneeId}
+                      disabled={!canAssign}
+                      onSelect={async (user) => {
+                        try {
+                          await taskService.updateTask(auth.currentUser!.uid, projectId, taskId, {
+                            assigneeId: user.uid,
+                            assigneeName: user.displayName || user.email,
+                            assigneePhoto: user.photoURL || null
+                          });
+                        } catch (error) {}
+                      }}
+                      onClear={async () => {
+                        try {
+                          await taskService.updateTask(auth.currentUser!.uid, projectId, taskId, {
+                            assigneeId: null,
+                            assigneeName: null,
+                            assigneePhoto: null
+                          });
+                        } catch (error) {}
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Timer Widget */}

@@ -103,6 +103,17 @@ export const userService = {
       const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       callback(users);
     }, (error) => handleFirestoreError(error, OperationType.LIST, path));
+  },
+
+  getUserProfile: (uid: string, callback: (user: any) => void) => {
+    const path = `users/${uid}`;
+    return onSnapshot(doc(db, path), (snapshot) => {
+      if (snapshot.exists()) {
+        callback({ id: snapshot.id, ...snapshot.data() });
+      } else {
+        callback(null);
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, path));
   }
 };
 
@@ -174,9 +185,27 @@ export const projectService = {
 
   deleteProject: async (userId: string, projectId: string) => {
     const path = `projects/${projectId}`;
+    console.log(`Starting deletion of project: ${projectId} by user: ${userId}`);
     try {
+      // Clean up tasks first
+      const tasksPath = `projects/${projectId}/tasks`;
+      console.log(`Fetching tasks for project ${projectId}...`);
+      const tasksSnapshot = await getDocs(collection(db, tasksPath));
+      console.log(`Found ${tasksSnapshot.size} tasks to delete.`);
+      
+      const deletePromises = tasksSnapshot.docs.map(doc => {
+        console.log(`Scheduling deletion of task: ${doc.id}`);
+        return deleteDoc(doc.ref);
+      });
+      await Promise.all(deletePromises);
+      console.log(`Successfully deleted tasks for project ${projectId}.`);
+
+      // Delete project document
+      console.log(`Deleting project document: ${path}`);
       await deleteDoc(doc(db, path));
-    } catch (error) {
+      console.log(`Successfully deleted project: ${projectId}.`);
+    } catch (error: any) {
+      console.error(`Error deleting project ${projectId}:`, error);
       handleFirestoreError(error, OperationType.DELETE, path);
     }
   }
@@ -207,6 +236,7 @@ export const taskService = {
       const docRef = await addDoc(collection(db, path), {
         ...taskData,
         projectId,
+        creatorId: userId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });

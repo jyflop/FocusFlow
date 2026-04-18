@@ -18,7 +18,8 @@ import {
   RotateCcw,
   Edit2,
   ExternalLink,
-  UserPlus
+  UserPlus,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -57,6 +58,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | 'All'>('All');
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   // New Task Form
   const [taskName, setTaskName] = useState('');
@@ -88,11 +90,52 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
       setLoading(false);
     });
 
+    const unsubscribeProfile = userService.getUserProfile(auth.currentUser.uid, (data) => {
+      setUserProfile(data);
+    });
+
     return () => {
       unsubscribeProject();
       unsubscribeTasks();
+      unsubscribeProfile();
     };
   }, [projectId]);
+
+  const [participants, setParticipants] = useState<UserProfile[]>([]);
+  
+  // Fetch participant profiles
+  useEffect(() => {
+    if (!project?.participants) return;
+    
+    if (project.participants.length === 0) {
+      setParticipants([]);
+      return;
+    }
+
+    // Clear participants that are no longer in the list
+    setParticipants(prev => prev.filter(p => project.participants!.includes(p.uid)));
+    
+    // Simple fetch for all participants
+    const unsubscribes = project.participants.map(uid => 
+      userService.getUserProfile(uid, (profile) => {
+        setParticipants(prev => {
+          const filtered = prev.filter(p => p.uid !== uid);
+          if (project.participants!.includes(uid)) {
+            return [...filtered, profile];
+          }
+          return filtered;
+        });
+      })
+    );
+    
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [project?.participants]);
+
+  const isOwner = project?.ownerId === auth.currentUser?.uid;
+  const isAdmin = userProfile?.role?.toLowerCase() === 'admin' || 
+    ['jyflopkaw@gmail.com', 'swartselsa0@gmail.com'].includes(auth.currentUser?.email || '') ||
+    auth.currentUser?.uid === '5DpJouFlgDSAQmq4dIjO173bKjD3';
+  const canManage = isAdmin || isOwner;
 
   // Auto-update project progress whenever tasks change
   useEffect(() => {
@@ -181,6 +224,25 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     }
   };
 
+  const handleRemoveParticipant = async (memberUid: string) => {
+    if (!auth.currentUser || !project || !project.participants) return;
+    if (memberUid === project.ownerId) {
+      alert("The project owner cannot be removed.");
+      return;
+    }
+    
+    if (!window.confirm("Are you sure you want to remove this participant from the project?")) return;
+
+    try {
+      const newParticipants = project.participants.filter(id => id !== memberUid);
+      await projectService.updateProject(auth.currentUser.uid, projectId, {
+        participants: newParticipants
+      });
+    } catch (error) {
+      console.error('Failed to remove participant:', error);
+    }
+  };
+
   const handleUpdateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth.currentUser || !editingTask || !editingTask.name.trim()) return;
@@ -239,14 +301,99 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
               )}>
                 {project.status}
               </div>
-              <button 
-                onClick={() => setIsEditProjectOpen(true)}
-                className="p-2 text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/5 rounded-lg transition-all"
-              >
-                <Edit2 className="w-4 h-4" />
-              </button>
+              {canManage && (
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsEditProjectOpen(true)}
+                    className="p-2 text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/5 rounded-lg transition-all"
+                    title="Edit Project"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (!auth.currentUser || !window.confirm('Are you sure you want to delete this entire project and all its tasks?')) return;
+                      try {
+                        await projectService.deleteProject(auth.currentUser.uid, projectId);
+                        onBack();
+                      } catch (error: any) {
+                        console.error('Project deletion failed:', error);
+                        let message = error.message || 'Unknown error';
+                        try {
+                          const parsed = JSON.parse(message);
+                          message = parsed.error || message;
+                        } catch (e) {}
+                        alert(`Failed to delete project: ${message}`);
+                      }
+                    }}
+                    className="p-2 text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/5 rounded-lg transition-all"
+                    title="Delete Project"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
             <p className="text-[var(--text-muted)] text-sm max-w-2xl leading-relaxed">{project.description}</p>
+            
+            {/* Project Team */}
+            <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">Project Team:</span>
+                <div className="flex -space-x-2 overflow-hidden hover:space-x-1 transition-all p-1">
+                  {participants.map((member) => (
+                    <div 
+                      key={member.uid}
+                      className="relative group/member"
+                    >
+                      <div className={cn(
+                        "w-8 h-8 rounded-full border-2 border-[var(--card-bg)] bg-[var(--bg)] flex items-center justify-center overflow-hidden transition-transform hover:scale-110",
+                        member.uid === project.ownerId ? "ring-2 ring-yellow-500/50" : ""
+                      )}>
+                        {member.photoURL ? (
+                          <img src={member.photoURL} alt={member.displayName || member.email} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-[10px] font-bold text-[var(--accent)]">{member.displayName?.charAt(0) || member.email?.charAt(0)}</span>
+                        )}
+                      </div>
+                      {/* Tooltip */}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[var(--card-bg)] border border-[var(--border)] rounded-xl shadow-xl opacity-0 group-hover/member:opacity-100 transition-all pointer-events-none z-50 whitespace-nowrap">
+                        <p className="text-xs font-bold text-[var(--text-main)]">{member.displayName || member.email}</p>
+                        <p className="text-[10px] text-[var(--text-muted)] font-bold uppercase tracking-widest mt-0.5">
+                          {member.uid === project.ownerId ? 'Project Creator' : member.role === 'Admin' ? 'Global Admin' : 'Team Member'}
+                        </p>
+                        {member.position && <p className="text-[9px] italic text-[var(--text-muted)] mt-1">{member.position}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {canManage && (
+                <div className="relative">
+                  <UserPicker 
+                    label="" 
+                    selectedUserId="" 
+                    onSelect={async (user) => {
+                      if (project.participants?.includes(user.uid)) return;
+                      const newParticipants = [...(project.participants || []), user.uid];
+                      await projectService.updateProject(auth.currentUser!.uid, projectId, {
+                        participants: newParticipants
+                      });
+                    }}
+                    onRemove={async (userUid) => {
+                      if (userUid === project.ownerId) return;
+                      const newParticipants = (project.participants || []).filter(id => id !== userUid);
+                      await projectService.updateProject(auth.currentUser!.uid, projectId, {
+                        participants: newParticipants
+                      });
+                    }}
+                    participantIds={project.participants || []}
+                    mode="participants"
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
@@ -255,18 +402,32 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                 <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                 <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">Delegated To</span>
               </div>
-              <UserPicker 
-                selectedUserId={project.assigneeId}
-                onSelect={async (user) => {
-                  try {
-                    await projectService.updateProject(auth.currentUser!.uid, projectId, {
-                      assigneeId: user.uid,
-                      assigneeName: user.displayName || user.email,
-                      assigneePhoto: user.photoURL || null
-                    });
-                  } catch (error) {}
-                }}
-              />
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <UserPicker 
+                    selectedUserId={project.assigneeId}
+                    disabled={!canManage}
+                    onSelect={async (user) => {
+                      try {
+                        await projectService.updateProject(auth.currentUser!.uid, projectId, {
+                          assigneeId: user.uid,
+                          assigneeName: user.displayName || user.email,
+                          assigneePhoto: user.photoURL || null
+                        });
+                      } catch (error) {}
+                    }}
+                    onClear={async () => {
+                      try {
+                        await projectService.updateProject(auth.currentUser!.uid, projectId, {
+                          assigneeId: null,
+                          assigneeName: null,
+                          assigneePhoto: null
+                        });
+                      } catch (error) {}
+                    }}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-6 bg-[var(--card-bg)] p-6 rounded-xl border border-[var(--border)] shadow-sm h-full max-h-[100px]">
@@ -391,13 +552,21 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                   <SortableTaskItem 
                     key={task.id} 
                     task={task} 
+                    canDelete={isAdmin || task.creatorId === auth.currentUser?.uid}
                     onClick={() => setSelectedTaskId(task.id)}
                     onStart={() => handleUpdateTaskStatus(task.id, 'In Progress')}
                     onEdit={() => setEditingTask(task)}
                     onDelete={async (e) => {
                       e.stopPropagation();
                       if (!auth.currentUser) return;
+                      const isTaskCreator = task.creatorId === auth.currentUser.uid;
+                      if (!isAdmin && !isTaskCreator) {
+                        console.error('Permission check failed for task deletion');
+                        return;
+                      }
+                      console.log(`Deleting task: ${task.id} (Project: ${projectId})`);
                       await taskService.deleteTask(auth.currentUser.uid, projectId, task.id);
+                      console.log('Task deleted successfully');
                     }}
                   />
                 ))}
@@ -610,7 +779,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
   );
 }
 
-function SortableTaskItem({ task, onClick, onStart, onEdit, onDelete }: { task: Task, onClick: () => void, onStart: () => void, onEdit: () => void, onDelete: (e: any) => void, [key: string]: any }) {
+function SortableTaskItem({ task, onClick, onStart, onEdit, onDelete, canDelete }: { task: Task, onClick: () => void, onStart: () => void, onEdit: () => void, onDelete: (e: any) => void, canDelete?: boolean, [key: string]: any }) {
   const {
     attributes,
     listeners,
@@ -752,12 +921,14 @@ function SortableTaskItem({ task, onClick, onStart, onEdit, onDelete }: { task: 
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
-          <button 
-            onClick={onDelete}
-            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {canDelete && (
+            <button 
+              onClick={onDelete}
+              className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '../lib/firebase';
-import { projectService } from '../lib/firestore';
-import { Project, ProjectStatus } from '../types';
+import { projectService, userService } from '../lib/firestore';
+import { Project, ProjectStatus, UserProfile } from '../types';
 import { 
   Plus, 
   Search, 
@@ -25,6 +25,7 @@ interface ProjectListProps {
 export default function ProjectList({ onSelectProject }: ProjectListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'All'>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -42,16 +43,30 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
   const [editStart, setEditStart] = useState('');
   const [editEnd, setEditEnd] = useState('');
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteStatus, setDeleteStatus] = useState<{ id: string, message: string, type: 'success' | 'error' | 'info' } | null>(null);
+
   useEffect(() => {
     if (!auth.currentUser) return;
 
-    const unsubscribe = projectService.getProjects(auth.currentUser.uid, (data) => {
+    const unsubProjects = projectService.getProjects(auth.currentUser.uid, (data) => {
       setProjects(data);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubProfile = userService.getUserProfile(auth.currentUser.uid, (data) => {
+      setUserProfile(data);
+    });
+
+    return () => {
+      unsubProjects();
+      unsubProfile();
+    };
   }, []);
+
+  const isAdmin = userProfile?.role?.toLowerCase() === 'admin' || 
+    ['jyflopkaw@gmail.com', 'swartselsa0@gmail.com'].includes(auth.currentUser?.email || '') ||
+    auth.currentUser?.uid === '5DpJouFlgDSAQmq4dIjO173bKjD3';
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,12 +93,35 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
 
   const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!auth.currentUser || !window.confirm('Are you sure you want to delete this project?')) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    
+    setDeletingId(id);
+    setDeleteStatus({ id, message: 'Deleting project...', type: 'info' });
+    console.log(`Debug: Admin: ${isAdmin}, User: ${currentUser.email}, Project: ${id}`);
     
     try {
-      await projectService.deleteProject(auth.currentUser.uid, id);
-    } catch (error) {
-      // Error handled in service
+      await projectService.deleteProject(currentUser.uid, id);
+      setDeleteStatus({ id, message: 'Project deleted.', type: 'success' });
+      console.log('Project deleted successfully on server!');
+      // UI will update automatically via onSnapshot, but let's clear status soon
+      setTimeout(() => {
+        setDeleteStatus(null);
+        setDeletingId(null);
+      }, 3000);
+    } catch (error: any) {
+      console.error('Project deletion failed:', error);
+      let message = error.message || String(error);
+      if (typeof message === 'string' && message.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(message);
+          message = parsed.error || message;
+        } catch (e) {}
+      }
+      setDeleteStatus({ id, message: `Error: ${message}`, type: 'error' });
+      setTimeout(() => {
+        setDeletingId(null);
+      }, 5000);
     }
   };
 
@@ -199,31 +237,61 @@ export default function ProjectList({ onSelectProject }: ProjectListProps) {
                     )}>
                       <Briefcase className="w-5 h-5" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider",
-                        project.status === 'Active' ? "bg-blue-500/10 text-blue-500" :
-                        project.status === 'Completed' ? "bg-green-500/10 text-green-500" :
-                        "bg-orange-500/10 text-orange-500"
-                      )}>
-                        {project.status}
+                      <div className="flex items-center gap-2">
+                        <div className={cn(
+                          "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider",
+                          project.status === 'Active' ? "bg-blue-500/10 text-blue-500" :
+                          project.status === 'Completed' ? "bg-green-500/10 text-green-500" :
+                          "bg-orange-500/10 text-orange-500"
+                        )}>
+                          {project.status}
+                        </div>
+                        {(project.ownerId === auth.currentUser?.uid || isAdmin) && (
+                          <div className={cn(
+                            "flex items-center gap-1 transition-all",
+                            deletingId === project.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          )}>
+                            <button 
+                              onClick={(e) => handleEditProject(project, e)}
+                              disabled={deletingId === project.id}
+                              className="p-1.5 text-slate-300 hover:text-[var(--accent)] hover:bg-[var(--accent)]/5 rounded-lg transition-all"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={(e) => handleDeleteProject(project.id, e)}
+                              disabled={deletingId === project.id}
+                              className={cn(
+                                "p-1.5 rounded-lg transition-all",
+                                deletingId === project.id 
+                                  ? "text-slate-400 bg-slate-100 cursor-not-allowed" 
+                                  : "text-slate-300 hover:text-red-500 hover:bg-red-500/10"
+                              )}
+                            >
+                              {deletingId === project.id ? (
+                                <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
+                                  <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full" />
+                                </motion.div>
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                        <button 
-                          onClick={(e) => handleEditProject(project, e)}
-                          className="p-1.5 text-slate-300 hover:text-[var(--accent)] hover:bg-[var(--accent)]/5 rounded-lg transition-all"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={(e) => handleDeleteProject(project.id, e)}
-                          className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
+
                   </div>
+
+                  {deleteStatus && deleteStatus.id === project.id && (
+                    <div className={cn(
+                      "mb-4 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                      deleteStatus.type === 'success' ? "bg-green-500/10 text-green-500 border border-green-500/20" :
+                      deleteStatus.type === 'error' ? "bg-red-500/10 text-red-500 border border-red-500/20" :
+                      "bg-blue-500/10 text-blue-500 border border-blue-500/20"
+                    )}>
+                      {deleteStatus.message}
+                    </div>
+                  )}
 
                   <h3 className="text-base font-bold text-[var(--text-main)] mb-2 group-hover:text-[var(--accent)] transition-colors truncate">
                     {project.name}

@@ -134,7 +134,7 @@ export default function Dashboard({ onSelectProject }: DashboardProps) {
               <span className="pill">This Month</span>
             </div>
           </div>
-          <div className="h-[300px] w-full">
+          <div className="h-[300px] w-full min-w-0" style={{ minHeight: '300px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />

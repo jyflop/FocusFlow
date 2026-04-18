@@ -40,6 +40,7 @@ export interface Task {
   progress: number;
   order: number;
   totalTimeSpent: number;
+  creatorId?: string;
   assigneeId?: string;
   assigneeName?: string;
   assigneePhoto?: string;

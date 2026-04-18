@@ -38,6 +38,17 @@ export default function Team() {
 
   const inviteLink = window.location.origin;
 
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    return userService.getUserProfile(auth.currentUser.uid, setCurrentUserProfile);
+  }, []);
+
+  const isAdminGlobal = currentUserProfile?.role?.toLowerCase() === 'admin' || 
+    ['jyflopkaw@gmail.com', 'swartselsa0@gmail.com'].includes(auth.currentUser?.email || '') ||
+    auth.currentUser?.uid === '5DpJouFlgDSAQmq4dIjO173bKjD3';
+
   const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteLink);
     setIsCopied(true);
@@ -234,12 +245,16 @@ export default function Team() {
                       type="text"
                       placeholder="Add position..."
                       value={user.position || ''}
+                      disabled={!isAdminGlobal && user.uid !== auth.currentUser?.uid}
                       onChange={async (e) => {
                         try {
                           await userService.updateProfile(user.uid, { position: e.target.value });
                         } catch (error) {}
                       }}
-                      className="bg-transparent text-xs text-[var(--text-main)] border-none focus:ring-0 p-0 placeholder:text-[var(--text-muted)] placeholder:opacity-50 italic"
+                      className={cn(
+                        "bg-transparent text-xs text-[var(--text-main)] border-none focus:ring-0 p-0 placeholder:text-[var(--text-muted)] placeholder:opacity-50 italic",
+                        (!isAdminGlobal && user.uid !== auth.currentUser?.uid) && "cursor-not-allowed opacity-70"
+                      )}
                     />
                   </td>
                   <td className="p-5">
@@ -250,6 +265,7 @@ export default function Team() {
                       )} />
                       <select
                         value={user.role || 'Member'}
+                        disabled={!isAdminGlobal}
                         onChange={async (e) => {
                           const newRole = e.target.value as 'Admin' | 'Member';
                           try {
@@ -258,7 +274,8 @@ export default function Team() {
                         }}
                         className={cn(
                           "bg-transparent text-[10px] font-bold uppercase tracking-widest focus:outline-none cursor-pointer hover:underline decoration-dotted transition-all",
-                          user.role === 'Admin' ? "text-purple-500" : "text-[var(--text-main)]"
+                          user.role === 'Admin' ? "text-purple-500" : "text-[var(--text-main)]",
+                          !isAdminGlobal && "cursor-not-allowed pointer-events-none opacity-70"
                         )}
                       >
                         <option value="Admin" className="bg-[var(--card-bg)] text-purple-500">Admin</option>
