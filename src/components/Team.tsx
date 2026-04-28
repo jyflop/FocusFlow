@@ -322,20 +322,6 @@ export default function Team() {
                   </td>
                   <td className="p-5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {isAdminGlobal && user.uid !== auth.currentUser?.uid && (
-                        <button 
-                          onClick={() => handleRemoveMember(user.uid)}
-                          disabled={deletingUserId === user.uid}
-                          className="p-2 hover:bg-red-500/10 rounded-lg text-red-500 transition-all disabled:opacity-50"
-                          title="Remove Member"
-                        >
-                          {deletingUserId === user.uid ? (
-                            <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
                       <div className="relative group/menu">
                         <button className="p-2 hover:bg-[var(--bg)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all">
                           <MoreVertical className="w-4 h-4" />
@@ -344,9 +330,14 @@ export default function Team() {
                           {isAdminGlobal && user.uid !== auth.currentUser?.uid && (
                             <button 
                               onClick={() => handleRemoveMember(user.uid)}
-                              className="w-full flex items-center gap-3 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+                              disabled={deletingUserId === user.uid}
+                              className="w-full flex items-center gap-3 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {deletingUserId === user.uid ? (
+                                <div className="w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
                               Remove Member
                             </button>
                           )}
